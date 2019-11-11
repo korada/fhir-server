@@ -250,7 +250,7 @@ namespace Microsoft.Health.Fhir.Api {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Resources within a transaction must be unique..
+        ///   Looks up a localized string similar to Transaction bundle contains multiple resources with the fullUrl &apos;{0}&apos;..
         /// </summary>
         public static string ResourcesMustBeUnique {
             get {

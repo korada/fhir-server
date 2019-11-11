@@ -31,7 +31,6 @@ using Microsoft.Health.Fhir.Core.Extensions;
 using Microsoft.Health.Fhir.Core.Features.Context;
 using Microsoft.Health.Fhir.Core.Features.Persistence;
 using Microsoft.Health.Fhir.Core.Messages.Bundle;
-using Microsoft.Health.Fhir.Core.Models;
 using Task = System.Threading.Tasks.Task;
 
 namespace Microsoft.Health.Fhir.Api.Features.Resources.Bundle
@@ -49,21 +48,24 @@ namespace Microsoft.Health.Fhir.Api.Features.Resources.Bundle
         private readonly IRouter _router;
         private readonly IServiceProvider _requestServices;
         private readonly ITransactionHandler _transactionHandler;
+        private readonly TransactionProcessor _transactionProcessor;
         private readonly ILogger<BundleHandler> _logger;
 
-        public BundleHandler(IHttpContextAccessor httpContextAccessor, IFhirRequestContextAccessor fhirRequestContextAccessor, FhirJsonSerializer fhirJsonSerializer, FhirJsonParser fhirJsonParser, ITransactionHandler transactionHandler, ILogger<BundleHandler> logger)
+        public BundleHandler(IHttpContextAccessor httpContextAccessor, IFhirRequestContextAccessor fhirRequestContextAccessor, FhirJsonSerializer fhirJsonSerializer, FhirJsonParser fhirJsonParser, ITransactionHandler transactionHandler, TransactionProcessor transactionProcessor, ILogger<BundleHandler> logger)
         {
             EnsureArg.IsNotNull(httpContextAccessor, nameof(httpContextAccessor));
             EnsureArg.IsNotNull(fhirRequestContextAccessor, nameof(fhirRequestContextAccessor));
             EnsureArg.IsNotNull(fhirJsonSerializer, nameof(fhirJsonSerializer));
             EnsureArg.IsNotNull(fhirJsonParser, nameof(fhirJsonParser));
             EnsureArg.IsNotNull(transactionHandler, nameof(transactionHandler));
+            EnsureArg.IsNotNull(transactionProcessor, nameof(transactionProcessor));
             EnsureArg.IsNotNull(logger, nameof(logger));
 
             _fhirRequestContextAccessor = fhirRequestContextAccessor;
             _fhirJsonSerializer = fhirJsonSerializer;
             _fhirJsonParser = fhirJsonParser;
             _transactionHandler = transactionHandler;
+            _transactionProcessor = transactionProcessor;
             _logger = logger;
 
             // Not all versions support the same enum values, so do the dictionary creation in the version specific partial.
@@ -92,15 +94,7 @@ namespace Microsoft.Health.Fhir.Api.Features.Resources.Bundle
             }
             else if (bundleResource.Type == Hl7.Fhir.Model.Bundle.BundleType.Transaction)
             {
-                if (!BundleValidator.ValidateTransactionBundle(bundleResource))
-                {
-                    throw new RequestNotValidException(Api.Resources.ResourcesMustBeUnique);
-                }
-
-                var responseBundle = new Hl7.Fhir.Model.Bundle
-                {
-                    Type = Hl7.Fhir.Model.Bundle.BundleType.TransactionResponse,
-                };
+                var responseBundle = _transactionProcessor.PreProcessBundleTransaction(bundleResource);
 
                 return await ExecuteTransactionForAllRequests(responseBundle);
             }
@@ -126,28 +120,6 @@ namespace Microsoft.Health.Fhir.Api.Features.Resources.Bundle
             }
 
             return new BundleResponse(responseBundle.ToResourceElement());
-        }
-
-        private static void ThrowTransactionException(HttpContext httpContext, OperationOutcome operationOutcome)
-        {
-            var operationOutcomeIssues = GetOperationOutcomeIssues(operationOutcome.Issue);
-
-            var errorMessage = string.Format(Api.Resources.TransactionFailed, httpContext.Request.Method, httpContext.Request.Path);
-
-            throw new TransactionFailedException(errorMessage, (HttpStatusCode)httpContext.Response.StatusCode, operationOutcomeIssues);
-        }
-
-        private static List<OperationOutcomeIssue> GetOperationOutcomeIssues(List<OperationOutcome.IssueComponent> operationoutcomeIssueList)
-        {
-            var issues = new List<OperationOutcomeIssue>();
-
-            operationoutcomeIssueList.ForEach(x =>
-                issues.Add(new OperationOutcomeIssue(
-                    x.Severity.ToString(),
-                    x.Code.ToString(),
-                    x.Diagnostics)));
-
-            return issues;
         }
 
         private async Task FillRequestLists(List<Hl7.Fhir.Model.Bundle.EntryComponent> bundleEntries)
@@ -256,7 +228,7 @@ namespace Microsoft.Health.Fhir.Api.Features.Resources.Bundle
 
                             if (responseBundle.Type == Hl7.Fhir.Model.Bundle.BundleType.TransactionResponse)
                             {
-                                ThrowTransactionException(httpContext, (OperationOutcome)entryComponentResource);
+                                TransactionProcessor.ThrowTransactionException(httpContext, (OperationOutcome)entryComponentResource);
                             }
                         }
                         else
