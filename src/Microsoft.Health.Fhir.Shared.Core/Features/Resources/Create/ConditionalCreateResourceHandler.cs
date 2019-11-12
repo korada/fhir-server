@@ -15,7 +15,6 @@ using Microsoft.Health.Fhir.Core.Features.Persistence;
 using Microsoft.Health.Fhir.Core.Features.Search;
 using Microsoft.Health.Fhir.Core.Messages.Create;
 using Microsoft.Health.Fhir.Core.Messages.Upsert;
-using Microsoft.Health.Fhir.Core.Models;
 
 namespace Microsoft.Health.Fhir.Core.Features.Resources.Create
 {
@@ -44,8 +43,9 @@ namespace Microsoft.Health.Fhir.Core.Features.Resources.Create
             EnsureArg.IsNotNull(message, nameof(message));
 
             SearchResult results = await _searchService.SearchAsync(message.Resource.InstanceType, message.ConditionalParameters, cancellationToken);
+            SearchResultEntry[] matchedResults = results.Results.Where(x => x.SearchEntryMode == ValueSets.SearchEntryMode.Match).ToArray();
 
-            int count = results.Results.Count();
+            int count = matchedResults.Length;
             if (count == 0)
             {
                 // No matches: The server creates the resource
